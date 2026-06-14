@@ -16,9 +16,13 @@ export default function App() {
     apiKey: '', phoneId: '', routingMode: 'DirectWeb', recipientNumber: ''
   });
   const [loading, setLoading] = useState(true);
+  const [reloading, setReloading] = useState(false);
   const [apiOffline, setApiOffline] = useState(false);
+  const [lastLoadedAt, setLastLoadedAt] = useState<Date | null>(null);
 
-  const loadAll = () => {
+  const loadAll = (isRefresh = false) => {
+    if (isRefresh) setReloading(true);
+    else setLoading(true);
     Promise.all([
       api.getProducts(),
       api.getOrders(),
@@ -34,8 +38,12 @@ export default function App() {
       setContactMessages(m);
       setSmtpConfig(s);
       setWhatsappConfig(w);
+      setLastLoadedAt(new Date());
     }).catch(() => setApiOffline(true))
-      .finally(() => setLoading(false));
+      .finally(() => {
+        setLoading(false);
+        setReloading(false);
+      });
   };
 
   useEffect(() => { loadAll(); }, []);
@@ -77,7 +85,7 @@ export default function App() {
   };
 
   const handleUpdateSMTP = (cfg: SMTPConfig) => {
-    api.updateSMTP(cfg).then(setSmtpConfig);
+    setSmtpConfig(cfg);
   };
 
   const handleUpdateWhatsApp = (cfg: WhatsAppConfig) => {
@@ -145,6 +153,10 @@ export default function App() {
         onUpdateSMTP={handleUpdateSMTP}
         whatsappConfig={whatsappConfig}
         onUpdateWhatsApp={handleUpdateWhatsApp}
+        apiOnline={!apiOffline}
+        lastLoadedAt={lastLoadedAt}
+        onReloadData={() => loadAll(true)}
+        reloading={reloading}
       />
     </div>
   );

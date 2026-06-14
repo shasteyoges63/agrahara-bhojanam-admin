@@ -84,6 +84,11 @@ export interface SMTPConfig {
   secure: boolean;
   username: string;
   senderEmail: string;
+  password?: string;
+  hasPassword?: boolean;
+  smtpReady?: boolean;
+  envConfigured?: boolean;
+  lastError?: string;
 }
 
 export interface WhatsAppConfig {

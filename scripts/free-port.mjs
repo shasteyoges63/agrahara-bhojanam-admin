@@ -20,18 +20,22 @@ function readPort() {
 const PORT = readPort();
 const isWin = process.platform === 'win32';
 
-function portOpen(port) {
-  return new Promise((resolve) => {
-    const socket = net.connect({ port, host: '127.0.0.1' }, () => {
-      socket.end();
-      resolve(true);
+async function portInUse(port) {
+  const check = (host) =>
+    new Promise((resolve) => {
+      const socket = net.connect({ port, host }, () => {
+        socket.end();
+        resolve(true);
+      });
+      socket.on('error', () => resolve(false));
+      socket.setTimeout(1000, () => {
+        socket.destroy();
+        resolve(false);
+      });
     });
-    socket.on('error', () => resolve(false));
-    socket.setTimeout(1000, () => {
-      socket.destroy();
-      resolve(false);
-    });
-  });
+  if (await check('127.0.0.1')) return true;
+  if (await check('::1')) return true;
+  return false;
 }
 
 function freePortWindows(port) {
@@ -51,9 +55,26 @@ function freePortWindows(port) {
   }
 }
 
+function freePortUnix(port) {
+  try {
+    const out = execSync(`lsof -ti :${port}`, { encoding: 'utf-8' });
+    for (const pid of out.trim().split('\n').filter(Boolean)) {
+      execSync(`kill -9 ${pid}`, { stdio: 'ignore' });
+    }
+  } catch {
+    // Port already free
+  }
+}
+
 async function main() {
-  if (!(await portOpen(PORT))) return;
-  if (isWin) freePortWindows(PORT);
+  // Windows Vite often binds [::1]; netstat kill is more reliable than IPv4-only probe
+  if (isWin) {
+    freePortWindows(PORT);
+    await new Promise((r) => setTimeout(r, 500));
+    return;
+  }
+  if (!(await portInUse(PORT))) return;
+  freePortUnix(PORT);
   await new Promise((r) => setTimeout(r, 500));
 }
 

@@ -60,7 +60,12 @@ export const api = {
   deleteMessage: (id: string) => request<void>(`/contact-messages/${id}`, { method: 'DELETE' }),
 
   getSMTP: () => request<SMTPConfig>('/config/smtp'),
-  updateSMTP: (config: SMTPConfig) => request<SMTPConfig>('/config/smtp', { method: 'PUT', body: JSON.stringify(config) }),
+  updateSMTP: (config: SMTPConfig) => request<SMTPConfig & { smtpReady?: boolean }>('/config/smtp', { method: 'PUT', body: JSON.stringify(config) }),
+  testSMTP: (to?: string) =>
+    request<{ ok: boolean; sentTo: string }>('/config/smtp/test', {
+      method: 'POST',
+      body: JSON.stringify({ to }),
+    }),
 
   getWhatsApp: () => request<WhatsAppConfig>('/config/whatsapp'),
   updateWhatsApp: (config: WhatsAppConfig) => request<WhatsAppConfig>('/config/whatsapp', { method: 'PUT', body: JSON.stringify(config) }),

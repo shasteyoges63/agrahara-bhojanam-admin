@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Building, LayoutDashboard, Plus, Edit, Trash2, Calendar, FileText, 
   Settings, MessageCircle, Mail, DollarSign, ArrowUpRight, TrendingUp, Check, Eye,
-  Download, Printer, ShieldCheck, Award
+  Download, Printer, ShieldCheck, Award, RefreshCw
 } from 'lucide-react';
 import { Product, Order, Expense, ContactMessage, SMTPConfig, WhatsAppConfig, OrderStatus } from '../types';
+import { api } from '../api/client';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 
@@ -28,6 +29,10 @@ interface AdminPagesProps {
   onUpdateSMTP: (cfg: SMTPConfig) => void;
   whatsappConfig: WhatsAppConfig;
   onUpdateWhatsApp: (cfg: WhatsAppConfig) => void;
+  apiOnline?: boolean;
+  lastLoadedAt?: Date | null;
+  onReloadData?: () => void;
+  reloading?: boolean;
 }
 
 export default function AdminPages({
@@ -50,6 +55,10 @@ export default function AdminPages({
   onUpdateSMTP,
   whatsappConfig,
   onUpdateWhatsApp,
+  apiOnline = true,
+  lastLoadedAt,
+  onReloadData,
+  reloading = false,
 }: AdminPagesProps) {
 
   const handleLocalImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -252,6 +261,14 @@ export default function AdminPages({
 
   // Sub-tabs in admin panel
   const [adminSubTab, setAdminSubTab] = useState<'dashboard' | 'products' | 'orders' | 'expenses' | 'messages' | 'configs'>('dashboard');
+  const [smtpDraft, setSmtpDraft] = useState<SMTPConfig>(smtpConfig);
+  const [smtpPassword, setSmtpPassword] = useState('');
+  const [smtpSaving, setSmtpSaving] = useState(false);
+  const [smtpTestStatus, setSmtpTestStatus] = useState('');
+
+  useEffect(() => {
+    setSmtpDraft(smtpConfig);
+  }, [smtpConfig]);
 
   const ADMIN_NAV = [
     { key: 'dashboard' as const, label: 'Financial Core', icon: LayoutDashboard },
@@ -545,7 +562,34 @@ export default function AdminPages({
             <h1 className="admin-section-title">{activeNavLabel}</h1>
             <p className="admin-section-sub">Click sidebar items to view each section one by one.</p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap justify-end">
+            <div
+              className={`flex items-center gap-2 text-[10px] font-sans px-2.5 py-1.5 rounded-lg border ${
+                apiOnline
+                  ? 'text-emerald-300 bg-emerald-950/30 border-emerald-800/50'
+                  : 'text-red-300 bg-red-950/30 border-red-800/50'
+              }`}
+              title="Data is loaded via fetch to /api/* (proxied to backend port 4000)"
+            >
+              <span className={`w-2 h-2 rounded-full ${apiOnline ? 'bg-emerald-400' : 'bg-red-400'}`} />
+              API {apiOnline ? 'connected' : 'offline'}
+              {lastLoadedAt && (
+                <span className="text-white/50">
+                  · {lastLoadedAt.toLocaleTimeString()}
+                </span>
+              )}
+            </div>
+            {onReloadData && (
+              <button
+                type="button"
+                onClick={onReloadData}
+                disabled={reloading}
+                className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide px-3 py-1.5 rounded-lg border border-[#c9a227]/40 text-[#c9a227] hover:bg-[#c9a227]/10 disabled:opacity-50"
+              >
+                <RefreshCw size={12} className={reloading ? 'animate-spin' : ''} />
+                {reloading ? 'Loading…' : 'Refresh API'}
+              </button>
+            )}
             <label className="flex items-center gap-2 font-sans text-xs ab-muted">
               <Calendar size={14} />
               <span>Month:</span>
@@ -1342,16 +1386,34 @@ export default function AdminPages({
             </h3>
 
             <p className="text-[10px] text-white/60 leading-relaxed">
-              Configure SMTP nodes to handle dynamic billing summaries. Values reside strictly in local app cache to preserve maximum regional safety locks.
+              Gmail: use your email + a 16-character App Password. Order invoices are sent automatically when customers checkout.
             </p>
+
+            {smtpDraft.envConfigured && (
+              <div className="text-[10px] text-sky-200 bg-sky-950/40 border border-sky-800/50 rounded-lg p-3 font-sans leading-relaxed">
+                <strong>backend/.env is active.</strong> SMTP user/password come from the backend `.env` file (not this form). Update <code>SMTP_PASS</code> there with a new Gmail App Password, save, and the backend will restart.
+              </div>
+            )}
+
+            {smtpDraft.smtpReady ? (
+              <div className="text-[10px] text-emerald-200 bg-emerald-950/40 border border-emerald-800/50 rounded-lg p-3 font-sans">
+                ✓ SMTP ready — order confirmation emails will send automatically.
+              </div>
+            ) : (
+              <div className="text-[10px] text-amber-200 bg-amber-950/40 border border-amber-800/50 rounded-lg p-3 font-sans leading-relaxed">
+                <strong>SMTP not ready.</strong>{' '}
+                {smtpDraft.lastError ||
+                  'Set Gmail + App Password in backend/.env or below, then Save SMTP and use Send Test Email.'}
+              </div>
+            )}
 
             <div className="space-y-3 font-mono">
               <div className="space-y-1 font-sans">
                 <label className="text-white font-semibold block">SMTP Host URI Node:</label>
                 <input 
                   type="text"
-                  value={smtpConfig.host}
-                  onChange={(e) => onUpdateSMTP({ ...smtpConfig, host: e.target.value })}
+                  value={smtpDraft.host}
+                  onChange={(e) => setSmtpDraft(prev => ({ ...prev, host: e.target.value }))}
                   className="w-full p-2 bg-[#141414] border border-[#3a3a3a] rounded-lg font-bold text-white"
                 />
               </div>
@@ -1361,16 +1423,16 @@ export default function AdminPages({
                   <label className="text-white/60 block">SMTP Port :</label>
                   <input 
                     type="number"
-                    value={smtpConfig.port}
-                    onChange={(e) => onUpdateSMTP({ ...smtpConfig, port: Number(e.target.value) })}
+                    value={smtpDraft.port}
+                    onChange={(e) => setSmtpDraft(prev => ({ ...prev, port: Number(e.target.value) }))}
                     className="w-full p-2 bg-[#141414] border border-[#3a3a3a] rounded-lg font-bold text-white"
                   />
                 </div>
                 <div className="space-y-1">
                   <label className="text-white/60 block">SSL Verification Secure:</label>
                   <select 
-                    value={smtpConfig.secure ? 'true' : 'false'}
-                    onChange={(e) => onUpdateSMTP({ ...smtpConfig, secure: e.target.value === 'true' })}
+                    value={smtpDraft.secure ? 'true' : 'false'}
+                    onChange={(e) => setSmtpDraft(prev => ({ ...prev, secure: e.target.value === 'true' }))}
                     className="w-full p-2 bg-[#141414] border border-[#3a3a3a] rounded-lg font-bold text-white"
                   >
                     <option value="true">YES / SSL (465)</option>
@@ -1383,8 +1445,8 @@ export default function AdminPages({
                 <label className="text-white/60 block">Sender Registered Email Account:</label>
                 <input 
                   type="email"
-                  value={smtpConfig.senderEmail}
-                  onChange={(e) => onUpdateSMTP({ ...smtpConfig, senderEmail: e.target.value })}
+                  value={smtpDraft.senderEmail}
+                  onChange={(e) => setSmtpDraft(prev => ({ ...prev, senderEmail: e.target.value }))}
                   className="w-full p-2 bg-[#141414] border border-[#3a3a3a] rounded-lg font-bold text-white"
                 />
               </div>
@@ -1393,14 +1455,83 @@ export default function AdminPages({
                 <label className="text-white/60 block">SMTP Authorization Username:</label>
                 <input 
                   type="text"
-                  value={smtpConfig.username}
-                  onChange={(e) => onUpdateSMTP({ ...smtpConfig, username: e.target.value })}
+                  value={smtpDraft.username}
+                  onChange={(e) => setSmtpDraft(prev => ({ ...prev, username: e.target.value }))}
                   className="w-full p-2 bg-[#141414] border border-[#3a3a3a] rounded-lg font-bold text-white"
+                  placeholder="admin@agraharabhojanam.com"
                 />
               </div>
 
+              <div className="space-y-1">
+                <label className="text-white/60 block">App Password {smtpDraft.hasPassword ? '(saved — leave blank to keep)' : '(required)'}:</label>
+                <input 
+                  type="password"
+                  value={smtpPassword}
+                  onChange={(e) => setSmtpPassword(e.target.value)}
+                  className="w-full p-2 bg-[#141414] border border-[#3a3a3a] rounded-lg font-bold text-white"
+                  placeholder="Gmail 16-character app password"
+                  autoComplete="new-password"
+                />
+              </div>
+
+              <div className="flex flex-wrap gap-2 pt-1">
+                <button
+                  type="button"
+                  disabled={smtpSaving}
+                  onClick={async () => {
+                    setSmtpSaving(true);
+                    setSmtpTestStatus('');
+                    try {
+                      const sender = smtpDraft.senderEmail.trim();
+                      const updated = await api.updateSMTP({
+                        ...smtpDraft,
+                        username: smtpDraft.username.trim() || sender,
+                        senderEmail: sender,
+                        ...(smtpPassword.trim() ? { password: smtpPassword.trim() } : {}),
+                      });
+                      onUpdateSMTP(updated);
+                      setSmtpDraft((prev) => ({ ...prev, ...updated }));
+                      setSmtpPassword('');
+                      setSmtpTestStatus(
+                        updated.smtpReady
+                          ? 'SMTP saved and ready.'
+                          : updated.lastError || 'Saved, but SMTP verify failed — check Gmail App Password in backend/.env.',
+                      );
+                    } catch (err) {
+                      setSmtpTestStatus(err instanceof Error ? err.message : 'Could not save SMTP.');
+                    } finally {
+                      setSmtpSaving(false);
+                    }
+                  }}
+                  className="px-4 py-2 rounded-lg bg-[#c9a227] text-[#141414] font-bold text-[11px] uppercase disabled:opacity-60"
+                >
+                  {smtpSaving ? 'Saving…' : 'Save SMTP'}
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setSmtpTestStatus('');
+                    try {
+                      const result = await api.testSMTP(smtpDraft.senderEmail);
+                      setSmtpTestStatus(`Test email sent to ${result.sentTo}`);
+                    } catch (err) {
+                      setSmtpTestStatus(err instanceof Error ? err.message : 'Test email failed.');
+                    }
+                  }}
+                  className="px-4 py-2 rounded-lg border border-[#c9a227]/50 text-[#c9a227] font-bold text-[11px] uppercase"
+                >
+                  Send Test Email
+                </button>
+              </div>
+
+              {smtpTestStatus && (
+                <p className="text-[10px] text-white/80 bg-[#1a1a1a] border border-[#3a3a3a] rounded-lg p-2.5 font-sans">
+                  {smtpTestStatus}
+                </p>
+              )}
+
               <div className="bg-[#141414] text-white/70 p-3 rounded font-sans italic text-[11px] leading-relaxed border border-[#3a3a3a]">
-                ⭐ <strong>Real integration verification:</strong> When a customer places an order, the system simulates calling the SMTP server <code>{smtpConfig.host}</code> to deliver HTML receipts in true visual accuracy.
+                When a customer places an order, invoice email is sent automatically to their email via <code>{smtpDraft.host || 'smtp.gmail.com'}</code>.
               </div>
 
             </div>
@@ -1486,7 +1617,7 @@ export default function AdminPages({
                     <h3 className="ab-invoice-brand-title">Agrahara Bhojanam</h3>
                     <p className="text-[0.65rem] text-[#e8d48b]/85 mt-1 max-w-sm">
                       Temple Road, Srirangam, Madurai, Tamil Nadu 625001<br />
-                      admin@agraharabhojanam.com · +91 90256 72285
+                      admin@agraharabhojanam.com · +91 87784 47165
                     </p>
                     <span className="ab-invoice-fssai">FSSAI 22421008000213</span>
                   </div>
